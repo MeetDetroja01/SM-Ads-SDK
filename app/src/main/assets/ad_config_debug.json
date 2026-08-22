@@ -1,0 +1,22 @@
+{
+  "inter_splash": {
+    "id": "ca-app-pub-3940256099942544/1033173712",
+    "isEnable": true
+  },
+  "open_resume": {
+    "id": "ca-app-pub-3940256099942544/9257395921",
+    "isEnable": true
+  },
+  "banner_home": {
+    "id": "ca-app-pub-3940256099942544/6300978111",
+    "isEnable": true
+  },
+  "inter_details": {
+    "id": "ca-app-pub-3940256099942544/1033173712",
+    "isEnable": true
+  },
+  "native_home": {
+    "id": "ca-app-pub-3940256099942544/2247696110",
+    "isEnable": true
+  }
+}
