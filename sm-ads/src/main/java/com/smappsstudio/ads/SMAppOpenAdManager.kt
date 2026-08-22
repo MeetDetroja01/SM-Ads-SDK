@@ -96,6 +96,7 @@ class SMAppOpenAdManager private constructor() : Application.ActivityLifecycleCa
      */
     fun showAdIfAvailable(activity: Activity) {
         if (isShowingAd) return
+        if (SMAdManager.isFullScreenAdShowing) return // Do not show App Open ad if any Interstitial ad is currently on screen
         if (!isAdAvailable()) {
             fetchAd()
             return

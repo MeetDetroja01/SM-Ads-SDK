@@ -23,6 +23,9 @@ import com.google.android.gms.ads.nativead.NativeAd
 
 object SMAdManager {
 
+    @JvmStatic
+    var isFullScreenAdShowing = false
+
     private var isPremium = false
     private var lastInterstitialShowTime = 0L
     private val interstitialAds = mutableMapOf<String, InterstitialAd>()
@@ -93,6 +96,7 @@ object SMAdManager {
                     
                     interstitialAd.fullScreenContentCallback = object : FullScreenContentCallback() {
                         override fun onAdDismissedFullScreenContent() {
+                            isFullScreenAdShowing = false
                             if (!isNextActionCalled) {
                                 isNextActionCalled = true
                                 callback.onNextAction()
@@ -100,14 +104,20 @@ object SMAdManager {
                         }
 
                         override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                            isFullScreenAdShowing = false
                             if (!isNextActionCalled) {
                                 isNextActionCalled = true
                                 callback.onNextAction()
                             }
                         }
+
+                        override fun onAdShowedFullScreenContent() {
+                            isFullScreenAdShowing = true
+                        }
                     }
 
                     if (!isNextActionCalled) {
+                        isFullScreenAdShowing = true
                         interstitialAd.show(activity)
                     }
                 }
@@ -172,6 +182,7 @@ object SMAdManager {
 
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdDismissedFullScreenContent() {
+                isFullScreenAdShowing = false
                 interstitialAds.remove(placementKey)
                 lastInterstitialShowTime = System.currentTimeMillis()
                 callback.onAdClosed()
@@ -179,15 +190,18 @@ object SMAdManager {
             }
 
             override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                isFullScreenAdShowing = false
                 interstitialAds.remove(placementKey)
                 callback.onAdClosed()
             }
 
             override fun onAdShowedFullScreenContent() {
+                isFullScreenAdShowing = true
                 callback.onAdOpened()
             }
         }
 
+        isFullScreenAdShowing = true
         ad.show(activity)
     }
 
