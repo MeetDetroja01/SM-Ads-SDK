@@ -274,6 +274,100 @@ object SMAdManager {
         adLoader.loadAd(AdRequest.Builder().build())
     }
 
+    /**
+     * Load Banner Ad with Shimmer frame layout support
+     */
+    fun loadBannerWithShimmer(
+        activity: Activity,
+        container: ViewGroup,
+        shimmer: com.facebook.shimmer.ShimmerFrameLayout,
+        placementKey: String,
+        isCollapsible: Boolean = false,
+        callback: SMAdCallback? = null
+    ) {
+        val config = SMAdConfig.getPlacement(placementKey)
+        if (isPremium || !config.isEnable || !isNetworkAvailable(activity)) {
+            shimmer.stopShimmer()
+            shimmer.visibility = android.view.View.GONE
+            container.visibility = android.view.View.GONE
+            callback?.onAdFailedToLoad("Premium, disabled or offline")
+            return
+        }
+
+        shimmer.visibility = android.view.View.VISIBLE
+        shimmer.startShimmer()
+        container.visibility = android.view.View.GONE
+
+        loadBanner(
+            activity = activity,
+            container = container,
+            placementKey = placementKey,
+            isCollapsible = isCollapsible,
+            callback = object : SMAdCallback() {
+                override fun onAdLoaded() {
+                    shimmer.stopShimmer()
+                    shimmer.visibility = android.view.View.GONE
+                    container.visibility = android.view.View.VISIBLE
+                    callback?.onAdLoaded()
+                }
+
+                override fun onAdFailedToLoad(error: String) {
+                    shimmer.stopShimmer()
+                    shimmer.visibility = android.view.View.GONE
+                    container.visibility = android.view.View.GONE
+                    callback?.onAdFailedToLoad(error)
+                }
+
+                override fun onAdClicked() {
+                    callback?.onAdClicked()
+                }
+            }
+        )
+    }
+
+    /**
+     * Load Native Ad with Shimmer frame layout support
+     */
+    fun loadNativeWithShimmer(
+        activity: Activity,
+        container: ViewGroup,
+        shimmer: com.facebook.shimmer.ShimmerFrameLayout,
+        placementKey: String,
+        layoutResId: Int,
+        callback: SMAdCallback? = null
+    ) {
+        val config = SMAdConfig.getPlacement(placementKey)
+        if (isPremium || !config.isEnable || !isNetworkAvailable(activity)) {
+            shimmer.stopShimmer()
+            shimmer.visibility = android.view.View.GONE
+            container.visibility = android.view.View.GONE
+            callback?.onAdFailedToLoad("Premium, disabled or offline")
+            return
+        }
+
+        shimmer.visibility = android.view.View.VISIBLE
+        shimmer.startShimmer()
+        container.visibility = android.view.View.GONE
+
+        loadNativeAd(
+            context = activity,
+            placementKey = placementKey,
+            onLoaded = { nativeAd ->
+                shimmer.stopShimmer()
+                shimmer.visibility = android.view.View.GONE
+                container.visibility = android.view.View.VISIBLE
+                SMNativeAdHelper.populateNativeAdInContainer(activity, nativeAd, container, layoutResId)
+                callback?.onAdLoaded()
+            },
+            onFailed = { error ->
+                shimmer.stopShimmer()
+                shimmer.visibility = android.view.View.GONE
+                container.visibility = android.view.View.GONE
+                callback?.onAdFailedToLoad(error)
+            }
+        )
+    }
+
     // Helper functions
     private fun isNetworkAvailable(context: Context): Boolean {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
