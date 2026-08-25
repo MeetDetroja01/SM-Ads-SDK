@@ -56,7 +56,7 @@ object SMAdManager {
      * Gather user consent for GDPR using Google UMP SDK
      */
     @JvmStatic
-    fun gatherConsent(activity: Activity, onConsentGatheringFinished: () -> Unit) {
+    fun setupGDPR(activity: Activity, onConsentGatheringFinished: () -> Unit) {
         val params = ConsentRequestParameters.Builder()
             .setTagForUnderAgeOfConsent(false)
             .build()
@@ -109,75 +109,74 @@ object SMAdManager {
         delayMs: Long = 1000,
         callback: SMAdCallback
     ) {
-        gatherConsent(activity) {
-            val config = SMAdConfig.getPlacement(placementKey)
+        val config = SMAdConfig.getPlacement(placementKey)
 
-            if (isPremium || !config.isEnable || !isNetworkAvailable(activity)) {
-                Handler(Looper.getMainLooper()).postDelayed({
-                    callback.onNextAction()
-                }, delayMs)
-                return@gatherConsent
-            }
-
-            var isNextActionCalled = false
-            val handler = Handler(Looper.getMainLooper())
-            
-            // Timeout runnable
-            val timeoutRunnable = Runnable {
-                if (!isNextActionCalled) {
-                    isNextActionCalled = true
-                    callback.onNextAction()
-                }
-            }
-            handler.postDelayed(timeoutRunnable, timeoutMs)
-
-            val request = AdRequest.Builder().build()
-            InterstitialAd.load(
-                activity,
-                config.id,
-                request,
-                object : InterstitialAdLoadCallback() {
-                    override fun onAdLoaded(interstitialAd: InterstitialAd) {
-                        handler.removeCallbacks(timeoutRunnable)
-                        
-                        interstitialAd.fullScreenContentCallback = object : FullScreenContentCallback() {
-                            override fun onAdDismissedFullScreenContent() {
-                                isFullScreenAdShowing = false
-                                if (!isNextActionCalled) {
-                                    isNextActionCalled = true
-                                    callback.onNextAction()
-                                }
-                            }
-
-                            override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
-                                isFullScreenAdShowing = false
-                                if (!isNextActionCalled) {
-                                    isNextActionCalled = true
-                                    callback.onNextAction()
-                                }
-                            }
-
-                            override fun onAdShowedFullScreenContent() {
-                                isFullScreenAdShowing = true
-                            }
-                        }
-
-                        if (!isNextActionCalled) {
-                            isFullScreenAdShowing = true
-                            interstitialAd.show(activity)
-                        }
-                    }
-
-                    override fun onAdFailedToLoad(loadAdError: LoadAdError) {
-                        handler.removeCallbacks(timeoutRunnable)
-                        if (!isNextActionCalled) {
-                            isNextActionCalled = true
-                            callback.onNextAction()
-                        }
-                    }
-                }
-            )
+        if (isPremium || !config.isEnable || !isNetworkAvailable(activity)) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                callback.onNextAction()
+            }, delayMs)
+            return
         }
+
+        var isNextActionCalled = false
+        val handler = Handler(Looper.getMainLooper())
+        
+        // Timeout runnable
+        val timeoutRunnable = Runnable {
+            if (!isNextActionCalled) {
+                isNextActionCalled = true
+                callback.onNextAction()
+            }
+        }
+        handler.postDelayed(timeoutRunnable, timeoutMs)
+
+        val request = AdRequest.Builder().build()
+        InterstitialAd.load(
+            activity,
+            config.id,
+            request,
+            object : InterstitialAdLoadCallback() {
+                override fun onAdLoaded(interstitialAd: InterstitialAd) {
+                    handler.removeCallbacks(timeoutRunnable)
+                    
+                    interstitialAd.fullScreenContentCallback = object : FullScreenContentCallback() {
+                        override fun onAdDismissedFullScreenContent() {
+                            isFullScreenAdShowing = false
+                            if (!isNextActionCalled) {
+                                
+                                isNextActionCalled = true
+                                callback.onNextAction()
+                            }
+                        }
+
+                        override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                            isFullScreenAdShowing = false
+                            if (!isNextActionCalled) {
+                                isNextActionCalled = true
+                                callback.onNextAction()
+                            }
+                        }
+
+                        override fun onAdShowedFullScreenContent() {
+                            isFullScreenAdShowing = true
+                        }
+                    }
+
+                    if (!isNextActionCalled) {
+                        isFullScreenAdShowing = true
+                        interstitialAd.show(activity)
+                    }
+                }
+
+                override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                    handler.removeCallbacks(timeoutRunnable)
+                    if (!isNextActionCalled) {
+                        isNextActionCalled = true
+                        callback.onNextAction()
+                    }
+                }
+            }
+        )
     }
 
     /**
