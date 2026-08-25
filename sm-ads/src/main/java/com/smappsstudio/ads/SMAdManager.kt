@@ -20,6 +20,9 @@ import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.interstitial.InterstitialAd
 import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
 import com.google.android.gms.ads.nativead.NativeAd
+import com.google.android.ump.ConsentInformation
+import com.google.android.ump.ConsentRequestParameters
+import com.google.android.ump.UserMessagingPlatform
 
 object SMAdManager {
 
@@ -27,16 +30,58 @@ object SMAdManager {
     var isFullScreenAdShowing = false
 
     private var isPremium = false
+    private var isMobileAdsInitialized = false
     private var lastInterstitialShowTime = 0L
     private val interstitialAds = mutableMapOf<String, InterstitialAd>()
     private var minIntervalBetweenInterstitials = 30 * 1000L // 30 seconds default
 
     /**
-     * Initialize SDK and parse JSON configs
+     * Initialize SDK and parse JSON configs (AdMob initialization is deferred to consent gathering)
      */
     fun initialize(context: Context, isDebug: Boolean, fileName: String? = null) {
-        MobileAds.initialize(context) {}
         SMAdConfig.initialize(context, isDebug, fileName)
+    }
+
+    /**
+     * Initialize Mobile Ads SDK safely if consent permits or is completed
+     */
+    @JvmStatic
+    fun initMobileAds(context: Context) {
+        if (isMobileAdsInitialized) return
+        MobileAds.initialize(context) {}
+        isMobileAdsInitialized = true
+    }
+
+    /**
+     * Gather user consent for GDPR using Google UMP SDK
+     */
+    @JvmStatic
+    fun gatherConsent(activity: Activity, onConsentGatheringFinished: () -> Unit) {
+        val params = ConsentRequestParameters.Builder()
+            .setTagForUnderAgeOfConsent(false)
+            .build()
+
+        val consentInformation = UserMessagingPlatform.getConsentInformation(activity)
+        consentInformation.requestConsentInfoUpdate(
+            activity,
+            params,
+            {
+                UserMessagingPlatform.loadAndShowConsentFormIfRequired(
+                    activity
+                ) { formError ->
+                    if (consentInformation.canRequestAds()) {
+                        initMobileAds(activity)
+                    }
+                    onConsentGatheringFinished()
+                }
+            },
+            { requestConsentError ->
+                if (consentInformation.canRequestAds()) {
+                    initMobileAds(activity)
+                }
+                onConsentGatheringFinished()
+            }
+        )
     }
 
     /**
@@ -64,79 +109,82 @@ object SMAdManager {
         delayMs: Long = 1000,
         callback: SMAdCallback
     ) {
-        val config = SMAdConfig.getPlacement(placementKey)
+        gatherConsent(activity) {
+            val config = SMAdConfig.getPlacement(placementKey)
 
-        if (isPremium || !config.isEnable || !isNetworkAvailable(activity)) {
-            Handler(Looper.getMainLooper()).postDelayed({
-                callback.onNextAction()
-            }, delayMs)
-            return
-        }
-
-        var isNextActionCalled = false
-        val handler = Handler(Looper.getMainLooper())
-        
-        // Timeout runnable
-        val timeoutRunnable = Runnable {
-            if (!isNextActionCalled) {
-                isNextActionCalled = true
-                callback.onNextAction()
+            if (isPremium || !config.isEnable || !isNetworkAvailable(activity)) {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    callback.onNextAction()
+                }, delayMs)
+                return@gatherConsent
             }
-        }
-        handler.postDelayed(timeoutRunnable, timeoutMs)
 
-        val request = AdRequest.Builder().build()
-        InterstitialAd.load(
-            activity,
-            config.id,
-            request,
-            object : InterstitialAdLoadCallback() {
-                override fun onAdLoaded(interstitialAd: InterstitialAd) {
-                    handler.removeCallbacks(timeoutRunnable)
-                    
-                    interstitialAd.fullScreenContentCallback = object : FullScreenContentCallback() {
-                        override fun onAdDismissedFullScreenContent() {
-                            isFullScreenAdShowing = false
-                            if (!isNextActionCalled) {
-                                isNextActionCalled = true
-                                callback.onNextAction()
+            var isNextActionCalled = false
+            val handler = Handler(Looper.getMainLooper())
+            
+            // Timeout runnable
+            val timeoutRunnable = Runnable {
+                if (!isNextActionCalled) {
+                    isNextActionCalled = true
+                    callback.onNextAction()
+                }
+            }
+            handler.postDelayed(timeoutRunnable, timeoutMs)
+
+            val request = AdRequest.Builder().build()
+            InterstitialAd.load(
+                activity,
+                config.id,
+                request,
+                object : InterstitialAdLoadCallback() {
+                    override fun onAdLoaded(interstitialAd: InterstitialAd) {
+                        handler.removeCallbacks(timeoutRunnable)
+                        
+                        interstitialAd.fullScreenContentCallback = object : FullScreenContentCallback() {
+                            override fun onAdDismissedFullScreenContent() {
+                                isFullScreenAdShowing = false
+                                if (!isNextActionCalled) {
+                                    isNextActionCalled = true
+                                    callback.onNextAction()
+                                }
+                            }
+
+                            override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                                isFullScreenAdShowing = false
+                                if (!isNextActionCalled) {
+                                    isNextActionCalled = true
+                                    callback.onNextAction()
+                                }
+                            }
+
+                            override fun onAdShowedFullScreenContent() {
+                                isFullScreenAdShowing = true
                             }
                         }
 
-                        override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
-                            isFullScreenAdShowing = false
-                            if (!isNextActionCalled) {
-                                isNextActionCalled = true
-                                callback.onNextAction()
-                            }
-                        }
-
-                        override fun onAdShowedFullScreenContent() {
+                        if (!isNextActionCalled) {
                             isFullScreenAdShowing = true
+                            interstitialAd.show(activity)
                         }
                     }
 
-                    if (!isNextActionCalled) {
-                        isFullScreenAdShowing = true
-                        interstitialAd.show(activity)
+                    override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                        handler.removeCallbacks(timeoutRunnable)
+                        if (!isNextActionCalled) {
+                            isNextActionCalled = true
+                            callback.onNextAction()
+                        }
                     }
                 }
-
-                override fun onAdFailedToLoad(loadAdError: LoadAdError) {
-                    handler.removeCallbacks(timeoutRunnable)
-                    if (!isNextActionCalled) {
-                        isNextActionCalled = true
-                        callback.onNextAction()
-                    }
-                }
-            }
-        )
+            )
+        }
     }
 
     /**
      * Preload standard Interstitial Ad
      */
     fun preloadInterstitialAd(context: Context, placementKey: String, callback: SMAdCallback? = null) {
+        initMobileAds(context)
         val config = SMAdConfig.getPlacement(placementKey)
         if (isPremium || !config.isEnable || !isNetworkAvailable(context)) {
             callback?.onAdFailedToLoad("Premium user, disabled or no network")
@@ -215,6 +263,7 @@ object SMAdManager {
         isCollapsible: Boolean = false,
         callback: SMAdCallback? = null
     ) {
+        initMobileAds(activity)
         val config = SMAdConfig.getPlacement(placementKey)
         container.removeAllViews()
 
@@ -267,6 +316,7 @@ object SMAdManager {
         onLoaded: (NativeAd) -> Unit,
         onFailed: (String) -> Unit
     ) {
+        initMobileAds(context)
         val config = SMAdConfig.getPlacement(placementKey)
 
         if (isPremium || !config.isEnable || !isNetworkAvailable(context)) {
