@@ -20,6 +20,9 @@ import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.interstitial.InterstitialAd
 import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
 import com.google.android.gms.ads.nativead.NativeAd
+import com.google.android.gms.ads.rewarded.RewardedAd
+import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
+import com.google.android.gms.ads.rewarded.RewardItem
 import com.google.android.ump.ConsentInformation
 import com.google.android.ump.ConsentRequestParameters
 import com.google.android.ump.UserMessagingPlatform
@@ -34,6 +37,7 @@ object SMAdManager {
     private var lastInterstitialShowTime = 0L
     private val interstitialAds = mutableMapOf<String, InterstitialAd>()
     private val clickCounters = mutableMapOf<String, Int>()
+    private val rewardedAds = mutableMapOf<String, RewardedAd>()
     private var minIntervalBetweenInterstitials = 30 * 1000L // 30 seconds default
     private var globalClickThreshold = 0
     private var loadingDialog: android.app.Dialog? = null
@@ -433,6 +437,104 @@ object SMAdManager {
             showInterstitialAd(activity, placementKey, callback)
         } else {
             callback.onAdClosed()
+        }
+    }
+
+    /**
+     * Preload standard Rewarded Ad
+     */
+    fun preloadRewardedAd(
+        context: Context,
+        placementKey: String,
+        adUnitId: String? = null,
+        isEnabled: Boolean? = null,
+        callback: SMAdCallback? = null
+    ) {
+        initMobileAds(context)
+        val finalAdUnitId = adUnitId ?: SMAdConfig.getPlacement(placementKey).id
+        val finalIsEnabled = isEnabled ?: SMAdConfig.getPlacement(placementKey).isEnable
+
+        if (isPremium || !finalIsEnabled || !isNetworkAvailable(context) || finalAdUnitId.isEmpty()) {
+            callback?.onAdFailedToLoad("Premium user, disabled, offline or empty adUnitId")
+            return
+        }
+
+        val request = AdRequest.Builder().build()
+        RewardedAd.load(
+            context,
+            finalAdUnitId,
+            request,
+            object : RewardedAdLoadCallback() {
+                override fun onAdLoaded(ad: RewardedAd) {
+                    rewardedAds[placementKey] = ad
+                    callback?.onAdLoaded()
+                }
+
+                override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                    callback?.onAdFailedToLoad(loadAdError.message)
+                }
+            }
+        )
+    }
+
+    /**
+     * Show Preloaded Rewarded Ad with safety loading dialog warning
+     */
+    fun showRewardedAd(
+        activity: Activity,
+        placementKey: String,
+        callback: SMAdCallback,
+        onUserEarnedReward: (RewardItem) -> Unit
+    ) {
+        val ad = rewardedAds[placementKey]
+        val config = SMAdConfig.getPlacement(placementKey)
+
+        if (isPremium || !config.isEnable || ad == null) {
+            callback.onAdClosed()
+            return
+        }
+
+        ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+            override fun onAdDismissedFullScreenContent() {
+                dismissLoadingDialog()
+                isFullScreenAdShowing = false
+                rewardedAds.remove(placementKey)
+                callback.onAdClosed()
+                preloadRewardedAd(activity, placementKey) // Auto reload next ad
+            }
+
+            override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                dismissLoadingDialog()
+                isFullScreenAdShowing = false
+                rewardedAds.remove(placementKey)
+                callback.onAdClosed()
+            }
+
+            override fun onAdShowedFullScreenContent() {
+                dismissLoadingDialog()
+                isFullScreenAdShowing = true
+                callback.onAdOpened()
+            }
+        }
+
+        // Show loading dialog on Main UI thread with a small delay before the ad renders
+        activity.runOnUiThread {
+            showLoadingDialog(activity)
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!activity.isFinishing && !activity.isDestroyed) {
+                    isFullScreenAdShowing = true
+                    try {
+                        ad.show(activity) { rewardItem ->
+                            onUserEarnedReward(rewardItem)
+                        }
+                    } catch (e: Exception) {
+                        dismissLoadingDialog()
+                        callback.onAdClosed()
+                    }
+                } else {
+                    dismissLoadingDialog()
+                }
+            }, 800) // 800ms warning delay
         }
     }
 
