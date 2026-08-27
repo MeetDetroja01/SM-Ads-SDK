@@ -104,7 +104,12 @@ object SMAdManager {
     @JvmStatic
     fun initMobileAds(context: Context) {
         if (isMobileAdsInitialized) return
-        MobileAds.initialize(context) {}
+        MobileAds.initialize(context) { initializationStatus ->
+            val statusMap = initializationStatus.adapterStatusMap
+            for ((adapterClass, status) in statusMap) {
+                android.util.Log.d("SMAdManager", "Mediation Adapter: $adapterClass, State: ${status.initializationState}")
+            }
+        }
         isMobileAdsInitialized = true
     }
 
