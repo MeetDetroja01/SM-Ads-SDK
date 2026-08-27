@@ -59,4 +59,11 @@ dependencies {
     api 'com.google.ads.mediation:facebook:6.18.0.0'
     api 'com.google.ads.mediation:mintegral:16.8.61.0'
     api 'com.google.ads.mediation:pangle:6.1.0.9.0'
+
+    // Adjust SDK (Attribution)
+    api 'com.adjust.sdk:adjust-android:4.38.3'
+    api 'com.android.installreferrer:installreferrer:2.2'
+
+    // Facebook Core SDK (App Events)
+    api 'com.facebook.android:facebook-core:17.0.0'
 }

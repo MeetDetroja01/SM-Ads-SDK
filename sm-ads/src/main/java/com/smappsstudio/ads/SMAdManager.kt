@@ -99,6 +99,57 @@ object SMAdManager {
     }
 
     /**
+     * Initialize SDK with attribution and marketing configurations
+     */
+    fun initialize(config: SMAppConfig, fileName: String? = null) {
+        SMAdConfig.initialize(config.context, config.isDebug, fileName)
+
+        // 1. Initialize Adjust SDK
+        if (config.adjustToken.isNotEmpty()) {
+            val environment = if (config.isDebug) {
+                com.adjust.sdk.AdjustConfig.ENVIRONMENT_SANDBOX
+            } else {
+                com.adjust.sdk.AdjustConfig.ENVIRONMENT_PRODUCTION
+            }
+            val adjustConfig = com.adjust.sdk.AdjustConfig(config.context, config.adjustToken, environment)
+            
+            val application = config.context.applicationContext as? android.app.Application
+            application?.let { app ->
+                app.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+                    override fun onActivityResumed(activity: android.app.Activity) {
+                        com.adjust.sdk.Adjust.onResume()
+                    }
+
+                    override fun onActivityPaused(activity: android.app.Activity) {
+                        com.adjust.sdk.Adjust.onPause()
+                    }
+
+                    override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+                    override fun onActivityStarted(activity: android.app.Activity) {}
+                    override fun onActivityStopped(activity: android.app.Activity) {}
+                    override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+                    override fun onActivityDestroyed(activity: android.app.Activity) {}
+                })
+            }
+            com.adjust.sdk.Adjust.onCreate(adjustConfig)
+        }
+
+        // 2. Initialize Facebook Core SDK
+        if (config.facebookClientToken.isNotEmpty()) {
+            com.facebook.FacebookSdk.setClientToken(config.facebookClientToken)
+            if (config.facebookAppId.isNotEmpty()) {
+                com.facebook.FacebookSdk.setApplicationId(config.facebookAppId)
+            }
+            com.facebook.FacebookSdk.sdkInitialize(config.context)
+            
+            val application = config.context.applicationContext as? android.app.Application
+            application?.let { app ->
+                com.facebook.appevents.AppEventsLogger.activateApp(app)
+            }
+        }
+    }
+
+    /**
      * Initialize Mobile Ads SDK safely if consent permits or is completed
      */
     @JvmStatic
