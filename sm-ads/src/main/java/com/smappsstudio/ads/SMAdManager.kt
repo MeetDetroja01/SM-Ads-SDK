@@ -34,6 +34,62 @@ object SMAdManager {
     private var lastInterstitialShowTime = 0L
     private val interstitialAds = mutableMapOf<String, InterstitialAd>()
     private var minIntervalBetweenInterstitials = 30 * 1000L // 30 seconds default
+    private var loadingDialog: android.app.Dialog? = null
+
+    private fun showLoadingDialog(activity: Activity) {
+        if (activity.isFinishing || activity.isDestroyed) return
+
+        val dialog = android.app.Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen)
+        
+        val layout = android.widget.RelativeLayout(activity).apply {
+            setBackgroundColor(android.graphics.Color.parseColor("#80000000")) // Semi-transparent black background
+            gravity = android.view.Gravity.CENTER
+        }
+        
+        val innerLayout = android.widget.LinearLayout(activity).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            setPadding(30, 30, 30, 30)
+        }
+        
+        val progressBar = android.widget.ProgressBar(activity).apply {
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+        }
+        
+        val textView = android.widget.TextView(activity).apply {
+            text = "Ad Loading..."
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 16f
+            setPadding(0, 20, 0, 0)
+        }
+        
+        innerLayout.addView(progressBar)
+        innerLayout.addView(textView)
+        layout.addView(innerLayout)
+        
+        dialog.setContentView(layout)
+        dialog.setCancelable(false)
+        try {
+            dialog.show()
+            loadingDialog = dialog
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun dismissLoadingDialog() {
+        try {
+            loadingDialog?.let {
+                if (it.isShowing) {
+                    it.dismiss()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            loadingDialog = null
+        }
+    }
 
     /**
      * Initialize SDK and parse JSON configs (AdMob initialization is deferred to consent gathering)
@@ -229,6 +285,7 @@ object SMAdManager {
 
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdDismissedFullScreenContent() {
+                dismissLoadingDialog()
                 isFullScreenAdShowing = false
                 interstitialAds.remove(placementKey)
                 lastInterstitialShowTime = System.currentTimeMillis()
@@ -237,19 +294,36 @@ object SMAdManager {
             }
 
             override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                dismissLoadingDialog()
                 isFullScreenAdShowing = false
                 interstitialAds.remove(placementKey)
                 callback.onAdClosed()
             }
 
             override fun onAdShowedFullScreenContent() {
+                dismissLoadingDialog()
                 isFullScreenAdShowing = true
                 callback.onAdOpened()
             }
         }
 
-        isFullScreenAdShowing = true
-        ad.show(activity)
+        // Show loading dialog on Main UI thread with a small delay before the ad renders
+        activity.runOnUiThread {
+            showLoadingDialog(activity)
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!activity.isFinishing && !activity.isDestroyed) {
+                    isFullScreenAdShowing = true
+                    try {
+                        ad.show(activity)
+                    } catch (e: Exception) {
+                        dismissLoadingDialog()
+                        callback.onAdClosed()
+                    }
+                } else {
+                    dismissLoadingDialog()
+                }
+            }, 800) // 800ms warning delay
+        }
     }
 
     /**
