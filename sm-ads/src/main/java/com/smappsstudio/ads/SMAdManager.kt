@@ -35,6 +35,7 @@ object SMAdManager {
     private val interstitialAds = mutableMapOf<String, InterstitialAd>()
     private val clickCounters = mutableMapOf<String, Int>()
     private var minIntervalBetweenInterstitials = 30 * 1000L // 30 seconds default
+    private var globalClickThreshold = 0
     private var loadingDialog: android.app.Dialog? = null
 
     private fun showLoadingDialog(activity: Activity) {
@@ -213,6 +214,14 @@ object SMAdManager {
     }
 
     /**
+     * Set global click threshold for all interstitial ads
+     * @param threshold 0 = show every click, 1 = show every 2nd click (alternate), 2 = show every 3rd click, etc.
+     */
+    fun setGlobalClickThreshold(threshold: Int) {
+        this.globalClickThreshold = threshold
+    }
+
+    /**
      * Load and Show Splash Interstitial Ad with safe timeout
      */
     fun loadSplashInterstitialAd(
@@ -332,6 +341,18 @@ object SMAdManager {
             callback.onAdClosed()
             return
         }
+
+        // Global click counter gating
+        val currentCount = (clickCounters[placementKey] ?: 0) + 1
+        clickCounters[placementKey] = currentCount
+
+        if (currentCount <= globalClickThreshold) {
+            callback.onAdClosed()
+            return
+        }
+
+        // Reset counter when threshold is met and ad is about to be shown
+        clickCounters[placementKey] = 0
 
         // Policy: Prevent showing ads too frequently
         val currentTime = System.currentTimeMillis()
