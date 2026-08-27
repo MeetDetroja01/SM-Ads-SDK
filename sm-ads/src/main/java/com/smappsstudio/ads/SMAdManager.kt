@@ -226,14 +226,17 @@ object SMAdManager {
      */
     fun loadSplashInterstitialAd(
         activity: Activity,
-        placementKey: String,
+        placementKey: String? = null,
+        adUnitId: String? = null,
+        isEnabled: Boolean? = null,
         timeoutMs: Long = 15000,
         delayMs: Long = 1000,
         callback: SMAdCallback
     ) {
-        val config = SMAdConfig.getPlacement(placementKey)
+        val finalAdUnitId = adUnitId ?: SMAdConfig.getPlacement(placementKey ?: "").id
+        val finalIsEnabled = isEnabled ?: SMAdConfig.getPlacement(placementKey ?: "").isEnable
 
-        if (isPremium || !config.isEnable || !isNetworkAvailable(activity)) {
+        if (isPremium || !finalIsEnabled || !isNetworkAvailable(activity) || finalAdUnitId.isEmpty()) {
             Handler(Looper.getMainLooper()).postDelayed({
                 callback.onNextAction()
             }, delayMs)
@@ -255,7 +258,7 @@ object SMAdManager {
         val request = AdRequest.Builder().build()
         InterstitialAd.load(
             activity,
-            config.id,
+            finalAdUnitId,
             request,
             object : InterstitialAdLoadCallback() {
                 override fun onAdLoaded(interstitialAd: InterstitialAd) {
@@ -304,18 +307,26 @@ object SMAdManager {
     /**
      * Preload standard Interstitial Ad
      */
-    fun preloadInterstitialAd(context: Context, placementKey: String, callback: SMAdCallback? = null) {
+    fun preloadInterstitialAd(
+        context: Context,
+        placementKey: String,
+        adUnitId: String? = null,
+        isEnabled: Boolean? = null,
+        callback: SMAdCallback? = null
+    ) {
         initMobileAds(context)
-        val config = SMAdConfig.getPlacement(placementKey)
-        if (isPremium || !config.isEnable || !isNetworkAvailable(context)) {
-            callback?.onAdFailedToLoad("Premium user, disabled or no network")
+        val finalAdUnitId = adUnitId ?: SMAdConfig.getPlacement(placementKey).id
+        val finalIsEnabled = isEnabled ?: SMAdConfig.getPlacement(placementKey).isEnable
+
+        if (isPremium || !finalIsEnabled || !isNetworkAvailable(context) || finalAdUnitId.isEmpty()) {
+            callback?.onAdFailedToLoad("Premium user, disabled, offline or empty adUnitId")
             return
         }
 
         val request = AdRequest.Builder().build()
         InterstitialAd.load(
             context,
-            config.id,
+            finalAdUnitId,
             request,
             object : InterstitialAdLoadCallback() {
                 override fun onAdLoaded(interstitialAd: InterstitialAd) {
@@ -431,22 +442,25 @@ object SMAdManager {
     fun loadBanner(
         activity: Activity,
         container: ViewGroup,
-        placementKey: String,
+        placementKey: String? = null,
+        adUnitId: String? = null,
+        isEnabled: Boolean? = null,
         isCollapsible: Boolean = false,
         callback: SMAdCallback? = null
     ) {
         initMobileAds(activity)
-        val config = SMAdConfig.getPlacement(placementKey)
+        val finalAdUnitId = adUnitId ?: SMAdConfig.getPlacement(placementKey ?: "").id
+        val finalIsEnabled = isEnabled ?: SMAdConfig.getPlacement(placementKey ?: "").isEnable
         container.removeAllViews()
 
-        if (isPremium || !config.isEnable || !isNetworkAvailable(activity)) {
+        if (isPremium || !finalIsEnabled || !isNetworkAvailable(activity) || finalAdUnitId.isEmpty()) {
             container.visibility = ViewGroup.GONE
-            callback?.onAdFailedToLoad("Premium user, disabled or no network")
+            callback?.onAdFailedToLoad("Premium user, disabled, offline or empty adUnitId")
             return
         }
 
         val adView = AdView(activity).apply {
-            adUnitId = config.id
+            this.adUnitId = finalAdUnitId
             setAdSize(getAdaptiveAdSize(activity))
         }
 
@@ -484,19 +498,22 @@ object SMAdManager {
      */
     fun loadNativeAd(
         context: Context,
-        placementKey: String,
+        placementKey: String? = null,
+        adUnitId: String? = null,
+        isEnabled: Boolean? = null,
         onLoaded: (NativeAd) -> Unit,
         onFailed: (String) -> Unit
     ) {
         initMobileAds(context)
-        val config = SMAdConfig.getPlacement(placementKey)
+        val finalAdUnitId = adUnitId ?: SMAdConfig.getPlacement(placementKey ?: "").id
+        val finalIsEnabled = isEnabled ?: SMAdConfig.getPlacement(placementKey ?: "").isEnable
 
-        if (isPremium || !config.isEnable || !isNetworkAvailable(context)) {
-            onFailed("Premium, disabled or no internet connection")
+        if (isPremium || !finalIsEnabled || !isNetworkAvailable(context) || finalAdUnitId.isEmpty()) {
+            onFailed("Premium, disabled, offline or empty adUnitId")
             return
         }
 
-        val adLoader = AdLoader.Builder(context, config.id)
+        val adLoader = AdLoader.Builder(context, finalAdUnitId)
             .forNativeAd { nativeAd ->
                 onLoaded(nativeAd)
             }
@@ -517,12 +534,16 @@ object SMAdManager {
         activity: Activity,
         container: ViewGroup,
         shimmer: com.facebook.shimmer.ShimmerFrameLayout,
-        placementKey: String,
+        placementKey: String? = null,
+        adUnitId: String? = null,
+        isEnabled: Boolean? = null,
         isCollapsible: Boolean = false,
         callback: SMAdCallback? = null
     ) {
-        val config = SMAdConfig.getPlacement(placementKey)
-        if (isPremium || !config.isEnable || !isNetworkAvailable(activity)) {
+        val finalAdUnitId = adUnitId ?: SMAdConfig.getPlacement(placementKey ?: "").id
+        val finalIsEnabled = isEnabled ?: SMAdConfig.getPlacement(placementKey ?: "").isEnable
+
+        if (isPremium || !finalIsEnabled || !isNetworkAvailable(activity) || finalAdUnitId.isEmpty()) {
             shimmer.stopShimmer()
             shimmer.visibility = android.view.View.GONE
             container.visibility = android.view.View.GONE
@@ -538,6 +559,8 @@ object SMAdManager {
             activity = activity,
             container = container,
             placementKey = placementKey,
+            adUnitId = finalAdUnitId,
+            isEnabled = finalIsEnabled,
             isCollapsible = isCollapsible,
             callback = object : SMAdCallback() {
                 override fun onAdLoaded() {
@@ -568,12 +591,16 @@ object SMAdManager {
         activity: Activity,
         container: ViewGroup,
         shimmer: com.facebook.shimmer.ShimmerFrameLayout,
-        placementKey: String,
+        placementKey: String? = null,
+        adUnitId: String? = null,
+        isEnabled: Boolean? = null,
         layoutResId: Int,
         callback: SMAdCallback? = null
     ) {
-        val config = SMAdConfig.getPlacement(placementKey)
-        if (isPremium || !config.isEnable || !isNetworkAvailable(activity)) {
+        val finalAdUnitId = adUnitId ?: SMAdConfig.getPlacement(placementKey ?: "").id
+        val finalIsEnabled = isEnabled ?: SMAdConfig.getPlacement(placementKey ?: "").isEnable
+
+        if (isPremium || !finalIsEnabled || !isNetworkAvailable(activity) || finalAdUnitId.isEmpty()) {
             shimmer.stopShimmer()
             shimmer.visibility = android.view.View.GONE
             container.visibility = android.view.View.GONE
@@ -588,6 +615,8 @@ object SMAdManager {
         loadNativeAd(
             context = activity,
             placementKey = placementKey,
+            adUnitId = finalAdUnitId,
+            isEnabled = finalIsEnabled,
             onLoaded = { nativeAd ->
                 shimmer.stopShimmer()
                 shimmer.visibility = android.view.View.GONE
