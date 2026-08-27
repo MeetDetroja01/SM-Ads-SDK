@@ -13,7 +13,7 @@ data class AdPlacement(
 )
 
 object SMAdConfig {
-    private var placements: Map<String, AdPlacement> = emptyMap()
+    private val placements = mutableMapOf<String, AdPlacement>()
 
     /**
      * Load configuration from the assets folder.
@@ -24,10 +24,13 @@ object SMAdConfig {
         try {
             val jsonString = context.assets.open(fileToLoad).bufferedReader().use { it.readText() }
             val mapType = object : TypeToken<Map<String, AdPlacement>>() {}.type
-            placements = Gson().fromJson(jsonString, mapType)
+            val parsedMap: Map<String, AdPlacement> = Gson().fromJson(jsonString, mapType)
+            synchronized(placements) {
+                placements.clear()
+                placements.putAll(parsedMap)
+            }
         } catch (e: IOException) {
             e.printStackTrace()
-            placements = emptyMap()
         }
     }
 
@@ -37,9 +40,24 @@ object SMAdConfig {
     fun initializeWithJson(jsonString: String) {
         try {
             val mapType = object : TypeToken<Map<String, AdPlacement>>() {}.type
-            placements = Gson().fromJson(jsonString, mapType)
+            val parsedMap: Map<String, AdPlacement> = Gson().fromJson(jsonString, mapType)
+            synchronized(placements) {
+                placements.clear()
+                placements.putAll(parsedMap)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    /**
+     * Dynamically register or update a placement's configuration programmatically.
+     * Use this to set ad unit IDs from strings.xml and enable states from individual Remote Config/Prefs.
+     */
+    @JvmStatic
+    fun registerPlacement(key: String, adUnitId: String, isEnabled: Boolean) {
+        synchronized(placements) {
+            placements[key] = AdPlacement(id = adUnitId, isEnable = isEnabled)
         }
     }
 
@@ -47,6 +65,8 @@ object SMAdConfig {
      * Get placement by its key name (e.g., "inter_splash")
      */
     fun getPlacement(key: String): AdPlacement {
-        return placements[key] ?: AdPlacement()
+        synchronized(placements) {
+            return placements[key] ?: AdPlacement()
+        }
     }
 }
