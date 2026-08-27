@@ -33,6 +33,7 @@ object SMAdManager {
     private var isMobileAdsInitialized = false
     private var lastInterstitialShowTime = 0L
     private val interstitialAds = mutableMapOf<String, InterstitialAd>()
+    private val clickCounters = mutableMapOf<String, Int>()
     private var minIntervalBetweenInterstitials = 30 * 1000L // 30 seconds default
     private var loadingDialog: android.app.Dialog? = null
 
@@ -379,6 +380,27 @@ object SMAdManager {
                     dismissLoadingDialog()
                 }
             }, 800) // 800ms warning delay
+        }
+    }
+
+    /**
+     * Show Interstitial Ad using a click counter threshold
+     * @param clickThreshold 0 = show every click, 1 = show every 2nd click (alternate), 2 = show every 3rd click, etc.
+     */
+    fun showInterstitialAdWithCounter(
+        activity: Activity,
+        placementKey: String,
+        clickThreshold: Int,
+        callback: SMAdCallback
+    ) {
+        val currentCount = (clickCounters[placementKey] ?: 0) + 1
+        clickCounters[placementKey] = currentCount
+
+        if (currentCount > clickThreshold) {
+            clickCounters[placementKey] = 0
+            showInterstitialAd(activity, placementKey, callback)
+        } else {
+            callback.onAdClosed()
         }
     }
 
