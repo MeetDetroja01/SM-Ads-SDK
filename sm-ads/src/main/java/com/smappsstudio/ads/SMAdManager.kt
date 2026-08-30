@@ -404,7 +404,13 @@ object SMAdManager {
         activity.runOnUiThread {
             showLoadingDialog(activity)
             Handler(Looper.getMainLooper()).postDelayed({
-                if (!activity.isFinishing && !activity.isDestroyed) {
+                val isActivityResumed = if (activity is androidx.lifecycle.LifecycleOwner) {
+                    activity.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED
+                } else {
+                    !activity.isFinishing && !activity.isDestroyed
+                }
+
+                if (isActivityResumed) {
                     isFullScreenAdShowing = true
                     try {
                         ad.show(activity)
@@ -414,6 +420,7 @@ object SMAdManager {
                     }
                 } else {
                     dismissLoadingDialog()
+                    callback.onAdClosed()
                 }
             }, 800) // 800ms warning delay
         }
@@ -521,7 +528,13 @@ object SMAdManager {
         activity.runOnUiThread {
             showLoadingDialog(activity)
             Handler(Looper.getMainLooper()).postDelayed({
-                if (!activity.isFinishing && !activity.isDestroyed) {
+                val isActivityResumed = if (activity is androidx.lifecycle.LifecycleOwner) {
+                    activity.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED
+                } else {
+                    !activity.isFinishing && !activity.isDestroyed
+                }
+
+                if (isActivityResumed) {
                     isFullScreenAdShowing = true
                     try {
                         ad.show(activity) { rewardItem ->
@@ -533,6 +546,7 @@ object SMAdManager {
                     }
                 } else {
                     dismissLoadingDialog()
+                    callback.onAdClosed()
                 }
             }, 800) // 800ms warning delay
         }
