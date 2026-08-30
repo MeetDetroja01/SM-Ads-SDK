@@ -774,4 +774,95 @@ object SMAdManager {
         val adWidth = (adWidthPixels / density).toInt()
         return AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, adWidth)
     }
+
+    // Direct Ad Unit ID & Enabled state Overloads (No PlacementKey required)
+    @JvmStatic
+    @JvmOverloads
+    fun loadSplashInterstitialAd(
+        activity: Activity,
+        adUnitId: String,
+        isEnabled: Boolean,
+        timeoutMs: Long = 15000,
+        delayMs: Long = 1000,
+        callback: SMAdCallback
+    ) {
+        SMAdConfig.registerPlacement(adUnitId, adUnitId, isEnabled)
+        loadSplashInterstitialAd(activity, adUnitId, adUnitId, isEnabled, timeoutMs, delayMs, callback)
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun preloadInterstitialAd(
+        context: Context,
+        adUnitId: String,
+        isEnabled: Boolean,
+        callback: SMAdCallback? = null
+    ) {
+        SMAdConfig.registerPlacement(adUnitId, adUnitId, isEnabled)
+        preloadInterstitialAd(context, adUnitId, adUnitId, isEnabled, callback)
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun preloadRewardedAd(
+        context: Context,
+        adUnitId: String,
+        isEnabled: Boolean,
+        callback: SMAdCallback? = null
+    ) {
+        SMAdConfig.registerPlacement(adUnitId, adUnitId, isEnabled)
+        preloadRewardedAd(context, adUnitId, adUnitId, isEnabled, callback)
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun loadBanner(
+        activity: Activity,
+        container: ViewGroup,
+        adUnitId: String,
+        isEnabled: Boolean,
+        isCollapsible: Boolean = false,
+        callback: SMAdCallback? = null
+    ) {
+        loadBanner(activity, container, null, adUnitId, isEnabled, isCollapsible, callback)
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun loadBannerWithShimmer(
+        activity: Activity,
+        container: ViewGroup,
+        shimmer: com.facebook.shimmer.ShimmerFrameLayout,
+        adUnitId: String,
+        isEnabled: Boolean,
+        isCollapsible: Boolean = false,
+        callback: SMAdCallback? = null
+    ) {
+        loadBannerWithShimmer(activity, container, shimmer, null, adUnitId, isEnabled, isCollapsible, callback)
+    }
+
+    @JvmStatic
+    fun loadNativeAd(
+        context: Context,
+        adUnitId: String,
+        isEnabled: Boolean,
+        onLoaded: (NativeAd) -> Unit,
+        onFailed: (String) -> Unit
+    ) {
+        loadNativeAd(context, null, adUnitId, isEnabled, onLoaded, onFailed)
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun loadNativeWithShimmer(
+        activity: Activity,
+        container: ViewGroup,
+        shimmer: com.facebook.shimmer.ShimmerFrameLayout,
+        adUnitId: String,
+        isEnabled: Boolean,
+        layoutResId: Int,
+        callback: SMAdCallback? = null
+    ) {
+        loadNativeWithShimmer(activity, container, shimmer, null, adUnitId, isEnabled, layoutResId, callback)
+    }
 }
