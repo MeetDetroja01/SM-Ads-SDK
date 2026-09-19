@@ -77,7 +77,7 @@ afterEvaluate {
                 from components.release
                 groupId = 'com.github.MeetDetroja01'
                 artifactId = 'sm-ads'
-                version = project.hasProperty('version') && project.version != 'unspecified' ? project.version : '1.1.4'
+                version = project.hasProperty('version') && project.version != 'unspecified' ? project.version : '1.1.5'
             }
         }
     }
