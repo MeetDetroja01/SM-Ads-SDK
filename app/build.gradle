@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId "com.smappsstudio.ads.demo"
-        minSdk 21
+        minSdk 23
         targetSdk 34
         versionCode 1
         versionName "1.0"
@@ -29,6 +29,7 @@ android {
     }
     kotlinOptions {
         jvmTarget = '1.8'
+        freeCompilerArgs += ["-Xskip-metadata-version-check"]
     }
     buildFeatures {
         viewBinding true
