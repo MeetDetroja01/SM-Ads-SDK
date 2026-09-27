@@ -42,7 +42,8 @@ object SMAdManager {
     private var globalClickThreshold = 0
     private var loadingDialog: android.app.Dialog? = null
 
-    private fun showLoadingDialog(activity: Activity) {
+    @JvmStatic
+    fun showLoadingDialog(activity: Activity) {
         if (activity.isFinishing || activity.isDestroyed) return
 
         val dialog = android.app.Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen)
@@ -83,7 +84,8 @@ object SMAdManager {
         }
     }
 
-    private fun dismissLoadingDialog() {
+    @JvmStatic
+    fun dismissLoadingDialog() {
         try {
             loadingDialog?.let {
                 if (it.isShowing) {
@@ -254,6 +256,7 @@ object SMAdManager {
         val timeoutRunnable = Runnable {
             if (!isNextActionCalled) {
                 isNextActionCalled = true
+                dismissLoadingDialog()
                 callback.onNextAction()
             }
         }
@@ -270,15 +273,16 @@ object SMAdManager {
                     
                     interstitialAd.fullScreenContentCallback = object : FullScreenContentCallback() {
                         override fun onAdDismissedFullScreenContent() {
+                            dismissLoadingDialog()
                             isFullScreenAdShowing = false
                             if (!isNextActionCalled) {
-                                
                                 isNextActionCalled = true
                                 callback.onNextAction()
                             }
                         }
 
                         override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                            dismissLoadingDialog()
                             isFullScreenAdShowing = false
                             if (!isNextActionCalled) {
                                 isNextActionCalled = true
@@ -287,18 +291,47 @@ object SMAdManager {
                         }
 
                         override fun onAdShowedFullScreenContent() {
+                            dismissLoadingDialog()
                             isFullScreenAdShowing = true
                         }
                     }
 
                     if (!isNextActionCalled) {
-                        isFullScreenAdShowing = true
-                        interstitialAd.show(activity)
+                        activity.runOnUiThread {
+                            showLoadingDialog(activity)
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                val isActivityResumed = if (activity is androidx.lifecycle.LifecycleOwner) {
+                                    activity.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED
+                                } else {
+                                    !activity.isFinishing && !activity.isDestroyed
+                                }
+
+                                if (isActivityResumed && !isNextActionCalled) {
+                                    isFullScreenAdShowing = true
+                                    try {
+                                        interstitialAd.show(activity)
+                                    } catch (e: Exception) {
+                                        dismissLoadingDialog()
+                                        if (!isNextActionCalled) {
+                                            isNextActionCalled = true
+                                            callback.onNextAction()
+                                        }
+                                    }
+                                } else {
+                                    dismissLoadingDialog()
+                                    if (!isNextActionCalled) {
+                                        isNextActionCalled = true
+                                        callback.onNextAction()
+                                    }
+                                }
+                            }, 800) // 800ms warning delay
+                        }
                     }
                 }
 
                 override fun onAdFailedToLoad(loadAdError: LoadAdError) {
                     handler.removeCallbacks(timeoutRunnable)
+                    dismissLoadingDialog()
                     if (!isNextActionCalled) {
                         isNextActionCalled = true
                         callback.onNextAction()

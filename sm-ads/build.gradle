@@ -81,13 +81,19 @@ afterEvaluate {
                 from components.release
                 groupId = 'com.github.MeetDetroja01'
                 artifactId = 'SM-Ads-SDK'
-                version = project.hasProperty('version') && project.version != 'unspecified' ? project.version : '1.1.6'
+                version = project.hasProperty('version') && project.version != 'unspecified' ? project.version : '1.1.7'
             }
             smAds(MavenPublication) {
                 from components.release
                 groupId = 'com.github.MeetDetroja01'
                 artifactId = 'sm-ads'
-                version = project.hasProperty('version') && project.version != 'unspecified' ? project.version : '1.1.6'
+                version = project.hasProperty('version') && project.version != 'unspecified' ? project.version : '1.1.7'
+            }
+            smAdsFull(MavenPublication) {
+                from components.release
+                groupId = 'com.github.MeetDetroja01.SM-Ads-SDK'
+                artifactId = 'sm-ads'
+                version = project.hasProperty('version') && project.version != 'unspecified' ? project.version : '1.1.7'
             }
         }
     }
