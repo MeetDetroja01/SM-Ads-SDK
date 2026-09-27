@@ -41,44 +41,122 @@ object SMAdManager {
     private var minIntervalBetweenInterstitials = 30 * 1000L // 30 seconds default
     private var globalClickThreshold = 0
     private var loadingDialog: android.app.Dialog? = null
+    private var dotsHandler: Handler? = null
+    private var adLoadingDelayMs = 1200L
+    private var adLoadingText = "Loading Ads"
+
+    @JvmStatic
+    fun setAdLoadingTime(delayMs: Long) {
+        this.adLoadingDelayMs = delayMs
+    }
+
+    @JvmStatic
+    fun getAdLoadingTime(): Long = adLoadingDelayMs
+
+    @JvmStatic
+    fun setAdLoadingText(text: String) {
+        this.adLoadingText = text
+    }
+
+    @JvmStatic
+    fun getAdLoadingText(): String = adLoadingText
 
     @JvmStatic
     fun showLoadingDialog(activity: Activity) {
         if (activity.isFinishing || activity.isDestroyed) return
 
+        dismissLoadingDialog()
+
         val dialog = android.app.Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen)
         
+        try {
+            val view = android.view.LayoutInflater.from(activity).inflate(R.layout.sm_dialog_loading, null)
+            val textView = view.findViewById<android.widget.TextView>(R.id.sm_loading_text)
+            val progressBar = view.findViewById<android.widget.ProgressBar>(R.id.sm_loading_progress)
+            progressBar?.indeterminateTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#3B82F6"))
+
+            dialog.setContentView(view)
+            dialog.setCancelable(false)
+            dialog.show()
+            loadingDialog = dialog
+
+            val baseText = adLoadingText
+            var dotCount = 0
+            val handler = Handler(Looper.getMainLooper())
+            dotsHandler = handler
+            val dotsRunnable = object : Runnable {
+                override fun run() {
+                    if (loadingDialog?.isShowing == true) {
+                        dotCount = (dotCount % 3) + 1
+                        textView?.text = "$baseText${".".repeat(dotCount)}"
+                        handler.postDelayed(this, 350)
+                    }
+                }
+            }
+            handler.post(dotsRunnable)
+        } catch (e: Exception) {
+            showFallbackLoadingDialog(activity, dialog)
+        }
+    }
+
+    private fun showFallbackLoadingDialog(activity: Activity, dialog: android.app.Dialog) {
         val layout = android.widget.RelativeLayout(activity).apply {
-            setBackgroundColor(android.graphics.Color.parseColor("#80000000")) // Semi-transparent black background
+            setBackgroundColor(android.graphics.Color.parseColor("#80000000"))
             gravity = android.view.Gravity.CENTER
         }
         
-        val innerLayout = android.widget.LinearLayout(activity).apply {
+        val density = activity.resources.displayMetrics.density
+        val cardLayout = android.widget.LinearLayout(activity).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.CENTER
-            setPadding(30, 30, 30, 30)
+            val padH = (36 * density).toInt()
+            val padV = (28 * density).toInt()
+            setPadding(padH, padV, padH, padV)
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(android.graphics.Color.WHITE)
+                cornerRadius = 18 * density
+                setStroke((1 * density).toInt(), android.graphics.Color.parseColor("#E2E8F0"))
+            }
+            background = bg
+            elevation = 10 * density
         }
-        
+
         val progressBar = android.widget.ProgressBar(activity).apply {
-            indeterminateTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#3B82F6"))
         }
-        
+
         val textView = android.widget.TextView(activity).apply {
-            text = "Ad Loading..."
-            setTextColor(android.graphics.Color.WHITE)
-            textSize = 16f
-            setPadding(0, 20, 0, 0)
+            text = "$adLoadingText..."
+            setTextColor(android.graphics.Color.parseColor("#1E293B"))
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, (16 * density).toInt(), 0, 0)
         }
-        
-        innerLayout.addView(progressBar)
-        innerLayout.addView(textView)
-        layout.addView(innerLayout)
-        
+
+        cardLayout.addView(progressBar)
+        cardLayout.addView(textView)
+        layout.addView(cardLayout)
+
         dialog.setContentView(layout)
         dialog.setCancelable(false)
         try {
             dialog.show()
             loadingDialog = dialog
+
+            val baseText = adLoadingText
+            var dotCount = 0
+            val handler = Handler(Looper.getMainLooper())
+            dotsHandler = handler
+            val dotsRunnable = object : Runnable {
+                override fun run() {
+                    if (loadingDialog?.isShowing == true) {
+                        dotCount = (dotCount % 3) + 1
+                        textView.text = "$baseText${".".repeat(dotCount)}"
+                        handler.postDelayed(this, 350)
+                    }
+                }
+            }
+            handler.post(dotsRunnable)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -87,6 +165,8 @@ object SMAdManager {
     @JvmStatic
     fun dismissLoadingDialog() {
         try {
+            dotsHandler?.removeCallbacksAndMessages(null)
+            dotsHandler = null
             loadingDialog?.let {
                 if (it.isShowing) {
                     it.dismiss()
@@ -324,7 +404,7 @@ object SMAdManager {
                                         callback.onNextAction()
                                     }
                                 }
-                            }, 800) // 800ms warning delay
+                            }, adLoadingDelayMs)
                         }
                     }
                 }
@@ -455,7 +535,7 @@ object SMAdManager {
                     dismissLoadingDialog()
                     callback.onAdClosed()
                 }
-            }, 800) // 800ms warning delay
+            }, adLoadingDelayMs)
         }
     }
 
@@ -581,7 +661,7 @@ object SMAdManager {
                     dismissLoadingDialog()
                     callback.onAdClosed()
                 }
-            }, 800) // 800ms warning delay
+            }, adLoadingDelayMs)
         }
     }
 
