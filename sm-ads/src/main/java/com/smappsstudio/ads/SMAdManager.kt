@@ -561,6 +561,193 @@ object SMAdManager {
     }
 
     /**
+     * Directly load and show an Interstitial Ad on demand (e.g. on button click).
+     * If an ad for the placement is already preloaded, it will show it immediately.
+     * Otherwise, it displays the loading dialog, loads the ad with a timeout, and shows it.
+     */
+    @JvmStatic
+    fun loadAndShowInterstitialAd(
+        activity: Activity,
+        placementKey: String? = null,
+        adUnitId: String? = null,
+        isEnabled: Boolean? = null,
+        timeoutMs: Long = 8000L,
+        callback: SMAdCallback
+    ) {
+        initMobileAds(activity)
+        val finalPlacementKey = placementKey ?: adUnitId ?: "inter_default"
+        val finalAdUnitId = adUnitId ?: SMAdConfig.getPlacement(finalPlacementKey).id
+        val finalIsEnabled = isEnabled ?: SMAdConfig.getPlacement(finalPlacementKey).isEnable
+
+        if (isPremium || !finalIsEnabled || !isNetworkAvailable(activity) || finalAdUnitId.isEmpty()) {
+            callback.onAdClosed()
+            return
+        }
+
+        // If an ad is already cached/preloaded for this placement, show it directly!
+        val cachedAd = interstitialAds.remove(finalPlacementKey)
+        if (cachedAd != null) {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastInterstitialShowTime < minIntervalBetweenInterstitials) {
+                callback.onAdClosed()
+                return
+            }
+
+            cachedAd.fullScreenContentCallback = object : FullScreenContentCallback() {
+                override fun onAdDismissedFullScreenContent() {
+                    dismissLoadingDialog()
+                    isFullScreenAdShowing = false
+                    lastInterstitialShowTime = System.currentTimeMillis()
+                    callback.onAdClosed()
+                    preloadInterstitialAd(activity, finalPlacementKey, finalAdUnitId, finalIsEnabled)
+                }
+
+                override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                    dismissLoadingDialog()
+                    isFullScreenAdShowing = false
+                    callback.onAdClosed()
+                }
+
+                override fun onAdShowedFullScreenContent() {
+                    dismissLoadingDialog()
+                    isFullScreenAdShowing = true
+                    callback.onAdOpened()
+                }
+            }
+
+            activity.runOnUiThread {
+                showLoadingDialog(activity)
+                Handler(Looper.getMainLooper()).postDelayed({
+                    val isActivityResumed = if (activity is androidx.lifecycle.LifecycleOwner) {
+                        activity.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED
+                    } else {
+                        !activity.isFinishing && !activity.isDestroyed
+                    }
+
+                    if (isActivityResumed) {
+                        isFullScreenAdShowing = true
+                        try {
+                            cachedAd.show(activity)
+                        } catch (e: Exception) {
+                            dismissLoadingDialog()
+                            callback.onAdClosed()
+                        }
+                    } else {
+                        dismissLoadingDialog()
+                        callback.onAdClosed()
+                    }
+                }, adLoadingDelayMs)
+            }
+            return
+        }
+
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastInterstitialShowTime < minIntervalBetweenInterstitials) {
+            callback.onAdClosed()
+            return
+        }
+
+        var isActionCompleted = false
+        val handler = Handler(Looper.getMainLooper())
+        val startTime = System.currentTimeMillis()
+
+        activity.runOnUiThread {
+            showLoadingDialog(activity)
+        }
+
+        val timeoutRunnable = Runnable {
+            if (!isActionCompleted) {
+                isActionCompleted = true
+                dismissLoadingDialog()
+                callback.onAdClosed()
+            }
+        }
+        handler.postDelayed(timeoutRunnable, timeoutMs)
+
+        val request = AdRequest.Builder().build()
+        InterstitialAd.load(
+            activity,
+            finalAdUnitId,
+            request,
+            object : InterstitialAdLoadCallback() {
+                override fun onAdLoaded(interstitialAd: InterstitialAd) {
+                    handler.removeCallbacks(timeoutRunnable)
+
+                    interstitialAd.fullScreenContentCallback = object : FullScreenContentCallback() {
+                        override fun onAdDismissedFullScreenContent() {
+                            dismissLoadingDialog()
+                            isFullScreenAdShowing = false
+                            lastInterstitialShowTime = System.currentTimeMillis()
+                            if (!isActionCompleted) {
+                                isActionCompleted = true
+                                callback.onAdClosed()
+                            }
+                            preloadInterstitialAd(activity, finalPlacementKey, finalAdUnitId, finalIsEnabled)
+                        }
+
+                        override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                            dismissLoadingDialog()
+                            isFullScreenAdShowing = false
+                            if (!isActionCompleted) {
+                                isActionCompleted = true
+                                callback.onAdClosed()
+                            }
+                        }
+
+                        override fun onAdShowedFullScreenContent() {
+                            dismissLoadingDialog()
+                            isFullScreenAdShowing = true
+                            callback.onAdOpened()
+                        }
+                    }
+
+                    if (!isActionCompleted) {
+                        activity.runOnUiThread {
+                            val isActivityResumed = if (activity is androidx.lifecycle.LifecycleOwner) {
+                                activity.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED
+                            } else {
+                                !activity.isFinishing && !activity.isDestroyed
+                            }
+
+                            if (isActivityResumed && !isActionCompleted) {
+                                val elapsed = System.currentTimeMillis() - startTime
+                                val remainingDelay = (adLoadingDelayMs - elapsed).coerceAtLeast(0L)
+                                Handler(Looper.getMainLooper()).postDelayed({
+                                    try {
+                                        isFullScreenAdShowing = true
+                                        interstitialAd.show(activity)
+                                    } catch (e: Exception) {
+                                        dismissLoadingDialog()
+                                        if (!isActionCompleted) {
+                                            isActionCompleted = true
+                                            callback.onAdClosed()
+                                        }
+                                    }
+                                }, remainingDelay)
+                            } else {
+                                dismissLoadingDialog()
+                                if (!isActionCompleted) {
+                                    isActionCompleted = true
+                                    callback.onAdClosed()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                    handler.removeCallbacks(timeoutRunnable)
+                    dismissLoadingDialog()
+                    if (!isActionCompleted) {
+                        isActionCompleted = true
+                        callback.onAdClosed()
+                    }
+                }
+            }
+        )
+    }
+
+    /**
      * Preload standard Rewarded Ad
      */
     fun preloadRewardedAd(
@@ -663,6 +850,184 @@ object SMAdManager {
                 }
             }, adLoadingDelayMs)
         }
+    }
+
+    /**
+     * Directly load and show a Rewarded Ad on demand (e.g. on button click).
+     * If an ad for the placement is already preloaded, it will show it immediately.
+     * Otherwise, it displays the loading dialog, loads the ad with a timeout, and shows it.
+     */
+    @JvmStatic
+    fun loadAndShowRewardedAd(
+        activity: Activity,
+        placementKey: String? = null,
+        adUnitId: String? = null,
+        isEnabled: Boolean? = null,
+        timeoutMs: Long = 8000L,
+        callback: SMAdCallback,
+        onUserEarnedReward: (RewardItem) -> Unit
+    ) {
+        initMobileAds(activity)
+        val finalPlacementKey = placementKey ?: adUnitId ?: "reward_default"
+        val finalAdUnitId = adUnitId ?: SMAdConfig.getPlacement(finalPlacementKey).id
+        val finalIsEnabled = isEnabled ?: SMAdConfig.getPlacement(finalPlacementKey).isEnable
+
+        if (isPremium || !finalIsEnabled || !isNetworkAvailable(activity) || finalAdUnitId.isEmpty()) {
+            callback.onAdClosed()
+            return
+        }
+
+        // If an ad is already cached/preloaded for this placement, show it directly!
+        val cachedAd = rewardedAds.remove(finalPlacementKey)
+        if (cachedAd != null) {
+            cachedAd.fullScreenContentCallback = object : FullScreenContentCallback() {
+                override fun onAdDismissedFullScreenContent() {
+                    dismissLoadingDialog()
+                    isFullScreenAdShowing = false
+                    callback.onAdClosed()
+                    preloadRewardedAd(activity, finalPlacementKey, finalAdUnitId, finalIsEnabled)
+                }
+
+                override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                    dismissLoadingDialog()
+                    isFullScreenAdShowing = false
+                    callback.onAdClosed()
+                }
+
+                override fun onAdShowedFullScreenContent() {
+                    dismissLoadingDialog()
+                    isFullScreenAdShowing = true
+                    callback.onAdOpened()
+                }
+            }
+
+            activity.runOnUiThread {
+                showLoadingDialog(activity)
+                Handler(Looper.getMainLooper()).postDelayed({
+                    val isActivityResumed = if (activity is androidx.lifecycle.LifecycleOwner) {
+                        activity.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED
+                    } else {
+                        !activity.isFinishing && !activity.isDestroyed
+                    }
+
+                    if (isActivityResumed) {
+                        isFullScreenAdShowing = true
+                        try {
+                            cachedAd.show(activity) { rewardItem ->
+                                onUserEarnedReward(rewardItem)
+                            }
+                        } catch (e: Exception) {
+                            dismissLoadingDialog()
+                            callback.onAdClosed()
+                        }
+                    } else {
+                        dismissLoadingDialog()
+                        callback.onAdClosed()
+                    }
+                }, adLoadingDelayMs)
+            }
+            return
+        }
+
+        var isActionCompleted = false
+        val handler = Handler(Looper.getMainLooper())
+        val startTime = System.currentTimeMillis()
+
+        activity.runOnUiThread {
+            showLoadingDialog(activity)
+        }
+
+        val timeoutRunnable = Runnable {
+            if (!isActionCompleted) {
+                isActionCompleted = true
+                dismissLoadingDialog()
+                callback.onAdClosed()
+            }
+        }
+        handler.postDelayed(timeoutRunnable, timeoutMs)
+
+        val request = AdRequest.Builder().build()
+        RewardedAd.load(
+            activity,
+            finalAdUnitId,
+            request,
+            object : RewardedAdLoadCallback() {
+                override fun onAdLoaded(rewardedAd: RewardedAd) {
+                    handler.removeCallbacks(timeoutRunnable)
+
+                    rewardedAd.fullScreenContentCallback = object : FullScreenContentCallback() {
+                        override fun onAdDismissedFullScreenContent() {
+                            dismissLoadingDialog()
+                            isFullScreenAdShowing = false
+                            if (!isActionCompleted) {
+                                isActionCompleted = true
+                                callback.onAdClosed()
+                            }
+                            preloadRewardedAd(activity, finalPlacementKey, finalAdUnitId, finalIsEnabled)
+                        }
+
+                        override fun onAdFailedToShowFullScreenContent(adError: com.google.android.gms.ads.AdError) {
+                            dismissLoadingDialog()
+                            isFullScreenAdShowing = false
+                            if (!isActionCompleted) {
+                                isActionCompleted = true
+                                callback.onAdClosed()
+                            }
+                        }
+
+                        override fun onAdShowedFullScreenContent() {
+                            dismissLoadingDialog()
+                            isFullScreenAdShowing = true
+                            callback.onAdOpened()
+                        }
+                    }
+
+                    if (!isActionCompleted) {
+                        activity.runOnUiThread {
+                            val isActivityResumed = if (activity is androidx.lifecycle.LifecycleOwner) {
+                                activity.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED
+                            } else {
+                                !activity.isFinishing && !activity.isDestroyed
+                            }
+
+                            if (isActivityResumed && !isActionCompleted) {
+                                val elapsed = System.currentTimeMillis() - startTime
+                                val remainingDelay = (adLoadingDelayMs - elapsed).coerceAtLeast(0L)
+                                Handler(Looper.getMainLooper()).postDelayed({
+                                    try {
+                                        isFullScreenAdShowing = true
+                                        rewardedAd.show(activity) { rewardItem ->
+                                            onUserEarnedReward(rewardItem)
+                                        }
+                                    } catch (e: Exception) {
+                                        dismissLoadingDialog()
+                                        if (!isActionCompleted) {
+                                            isActionCompleted = true
+                                            callback.onAdClosed()
+                                        }
+                                    }
+                                }, remainingDelay)
+                            } else {
+                                dismissLoadingDialog()
+                                if (!isActionCompleted) {
+                                    isActionCompleted = true
+                                    callback.onAdClosed()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                    handler.removeCallbacks(timeoutRunnable)
+                    dismissLoadingDialog()
+                    if (!isActionCompleted) {
+                        isActionCompleted = true
+                        callback.onAdClosed()
+                    }
+                }
+            }
+        )
     }
 
     /**
@@ -977,5 +1342,55 @@ object SMAdManager {
         callback: SMAdCallback? = null
     ) {
         loadNativeWithShimmer(activity, container, shimmer, null, adUnitId, isEnabled, layoutResId, callback)
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun loadAndShowInterstitialAd(
+        activity: Activity,
+        placementKey: String,
+        callback: SMAdCallback,
+        timeoutMs: Long = 8000L
+    ) {
+        loadAndShowInterstitialAd(activity, placementKey, null, null, timeoutMs, callback)
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun loadAndShowInterstitialAd(
+        activity: Activity,
+        adUnitId: String,
+        isEnabled: Boolean,
+        callback: SMAdCallback,
+        timeoutMs: Long = 8000L
+    ) {
+        SMAdConfig.registerPlacement(adUnitId, adUnitId, isEnabled)
+        loadAndShowInterstitialAd(activity, adUnitId, adUnitId, isEnabled, timeoutMs, callback)
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun loadAndShowRewardedAd(
+        activity: Activity,
+        placementKey: String,
+        callback: SMAdCallback,
+        timeoutMs: Long = 8000L,
+        onUserEarnedReward: (RewardItem) -> Unit
+    ) {
+        loadAndShowRewardedAd(activity, placementKey, null, null, timeoutMs, callback, onUserEarnedReward)
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun loadAndShowRewardedAd(
+        activity: Activity,
+        adUnitId: String,
+        isEnabled: Boolean,
+        callback: SMAdCallback,
+        timeoutMs: Long = 8000L,
+        onUserEarnedReward: (RewardItem) -> Unit
+    ) {
+        SMAdConfig.registerPlacement(adUnitId, adUnitId, isEnabled)
+        loadAndShowRewardedAd(activity, adUnitId, adUnitId, isEnabled, timeoutMs, callback, onUserEarnedReward)
     }
 }
