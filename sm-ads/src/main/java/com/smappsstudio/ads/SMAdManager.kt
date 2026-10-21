@@ -293,10 +293,48 @@ object SMAdManager {
     }
 
     /**
-     * Set minimum interval between interstitial ads to protect UX
+     * Set minimum interval between interstitial ads in seconds (Default is 30 seconds)
      */
+    @JvmStatic
     fun setMinIntervalBetweenInterstitials(seconds: Int) {
         this.minIntervalBetweenInterstitials = seconds * 1000L
+    }
+
+    /**
+     * Get minimum interval between interstitial ads in seconds
+     */
+    @JvmStatic
+    fun getMinIntervalBetweenInterstitials(): Int = (minIntervalBetweenInterstitials / 1000L).toInt()
+
+    /**
+     * Check if the minimum interval between interstitial ads has passed
+     */
+    @JvmStatic
+    fun isInterstitialIntervalPassed(): Boolean {
+        return (System.currentTimeMillis() - lastInterstitialShowTime) >= minIntervalBetweenInterstitials
+    }
+
+    /**
+     * Get remaining cooldown seconds before the next interstitial ad can be shown (0 if ready)
+     */
+    @JvmStatic
+    fun getRemainingInterstitialIntervalSeconds(): Long {
+        val diff = minIntervalBetweenInterstitials - (System.currentTimeMillis() - lastInterstitialShowTime)
+        return if (diff > 0) (diff + 999) / 1000L else 0L
+    }
+
+    /**
+     * Get timestamp in millis when the last interstitial or full-screen ad was shown/dismissed
+     */
+    @JvmStatic
+    fun getLastInterstitialShowTime(): Long = lastInterstitialShowTime
+
+    /**
+     * Reset interstitial interval cooldown so an interstitial ad can show immediately
+     */
+    @JvmStatic
+    fun resetInterstitialInterval() {
+        lastInterstitialShowTime = 0L
     }
 
     /**
@@ -355,6 +393,7 @@ object SMAdManager {
                         override fun onAdDismissedFullScreenContent() {
                             dismissLoadingDialog()
                             isFullScreenAdShowing = false
+                            lastInterstitialShowTime = System.currentTimeMillis()
                             if (!isNextActionCalled) {
                                 isNextActionCalled = true
                                 callback.onNextAction()
@@ -373,6 +412,7 @@ object SMAdManager {
                         override fun onAdShowedFullScreenContent() {
                             dismissLoadingDialog()
                             isFullScreenAdShowing = true
+                            lastInterstitialShowTime = System.currentTimeMillis()
                         }
                     }
 
@@ -462,6 +502,18 @@ object SMAdManager {
      * Show Preloaded Interstitial Ad with safety delay interval check
      */
     fun showInterstitialAd(activity: Activity, placementKey: String, callback: SMAdCallback) {
+        if (isFullScreenAdShowing) {
+            callback.onAdClosed()
+            return
+        }
+
+        // Policy: Prevent showing ads too frequently (minimum 30 seconds interval between interstitial ads)
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastInterstitialShowTime < minIntervalBetweenInterstitials) {
+            callback.onAdClosed()
+            return
+        }
+
         val ad = interstitialAds[placementKey]
         val config = SMAdConfig.getPlacement(placementKey)
 
@@ -481,13 +533,6 @@ object SMAdManager {
 
         // Reset counter when threshold is met and ad is about to be shown
         clickCounters[placementKey] = 0
-
-        // Policy: Prevent showing ads too frequently
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastInterstitialShowTime < minIntervalBetweenInterstitials) {
-            callback.onAdClosed()
-            return
-        }
 
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdDismissedFullScreenContent() {
@@ -509,6 +554,7 @@ object SMAdManager {
             override fun onAdShowedFullScreenContent() {
                 dismissLoadingDialog()
                 isFullScreenAdShowing = true
+                lastInterstitialShowTime = System.currentTimeMillis()
                 callback.onAdOpened()
             }
         }
@@ -579,7 +625,14 @@ object SMAdManager {
         val finalAdUnitId = adUnitId ?: SMAdConfig.getPlacement(finalPlacementKey).id
         val finalIsEnabled = isEnabled ?: SMAdConfig.getPlacement(finalPlacementKey).isEnable
 
-        if (isPremium || !finalIsEnabled || !isNetworkAvailable(activity) || finalAdUnitId.isEmpty()) {
+        if (isPremium || !finalIsEnabled || !isNetworkAvailable(activity) || finalAdUnitId.isEmpty() || isFullScreenAdShowing) {
+            callback.onAdClosed()
+            return
+        }
+
+        // Policy: Prevent showing ads too frequently (minimum 30 seconds interval between interstitial ads)
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastInterstitialShowTime < minIntervalBetweenInterstitials) {
             callback.onAdClosed()
             return
         }
@@ -587,12 +640,6 @@ object SMAdManager {
         // If an ad is already cached/preloaded for this placement, show it directly!
         val cachedAd = interstitialAds.remove(finalPlacementKey)
         if (cachedAd != null) {
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastInterstitialShowTime < minIntervalBetweenInterstitials) {
-                callback.onAdClosed()
-                return
-            }
-
             cachedAd.fullScreenContentCallback = object : FullScreenContentCallback() {
                 override fun onAdDismissedFullScreenContent() {
                     dismissLoadingDialog()
@@ -611,6 +658,7 @@ object SMAdManager {
                 override fun onAdShowedFullScreenContent() {
                     dismissLoadingDialog()
                     isFullScreenAdShowing = true
+                    lastInterstitialShowTime = System.currentTimeMillis()
                     callback.onAdOpened()
                 }
             }
@@ -641,12 +689,6 @@ object SMAdManager {
             return
         }
 
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastInterstitialShowTime < minIntervalBetweenInterstitials) {
-            callback.onAdClosed()
-            return
-        }
-
         var isActionCompleted = false
         val handler = Handler(Looper.getMainLooper())
         val startTime = System.currentTimeMillis()
@@ -673,6 +715,18 @@ object SMAdManager {
                 override fun onAdLoaded(interstitialAd: InterstitialAd) {
                     handler.removeCallbacks(timeoutRunnable)
 
+                    // Re-check interval & full-screen state in case another ad showed while loading
+                    val now = System.currentTimeMillis()
+                    if (now - lastInterstitialShowTime < minIntervalBetweenInterstitials || isFullScreenAdShowing) {
+                        interstitialAds[finalPlacementKey] = interstitialAd
+                        dismissLoadingDialog()
+                        if (!isActionCompleted) {
+                            isActionCompleted = true
+                            callback.onAdClosed()
+                        }
+                        return
+                    }
+
                     interstitialAd.fullScreenContentCallback = object : FullScreenContentCallback() {
                         override fun onAdDismissedFullScreenContent() {
                             dismissLoadingDialog()
@@ -697,6 +751,7 @@ object SMAdManager {
                         override fun onAdShowedFullScreenContent() {
                             dismissLoadingDialog()
                             isFullScreenAdShowing = true
+                            lastInterstitialShowTime = System.currentTimeMillis()
                             callback.onAdOpened()
                         }
                     }
@@ -806,6 +861,7 @@ object SMAdManager {
                 dismissLoadingDialog()
                 isFullScreenAdShowing = false
                 rewardedAds.remove(placementKey)
+                lastInterstitialShowTime = System.currentTimeMillis()
                 callback.onAdClosed()
                 preloadRewardedAd(activity, placementKey) // Auto reload next ad
             }
@@ -820,6 +876,7 @@ object SMAdManager {
             override fun onAdShowedFullScreenContent() {
                 dismissLoadingDialog()
                 isFullScreenAdShowing = true
+                lastInterstitialShowTime = System.currentTimeMillis()
                 callback.onAdOpened()
             }
         }
@@ -884,6 +941,7 @@ object SMAdManager {
                 override fun onAdDismissedFullScreenContent() {
                     dismissLoadingDialog()
                     isFullScreenAdShowing = false
+                    lastInterstitialShowTime = System.currentTimeMillis()
                     callback.onAdClosed()
                     preloadRewardedAd(activity, finalPlacementKey, finalAdUnitId, finalIsEnabled)
                 }
@@ -897,6 +955,7 @@ object SMAdManager {
                 override fun onAdShowedFullScreenContent() {
                     dismissLoadingDialog()
                     isFullScreenAdShowing = true
+                    lastInterstitialShowTime = System.currentTimeMillis()
                     callback.onAdOpened()
                 }
             }
@@ -959,6 +1018,7 @@ object SMAdManager {
                         override fun onAdDismissedFullScreenContent() {
                             dismissLoadingDialog()
                             isFullScreenAdShowing = false
+                            lastInterstitialShowTime = System.currentTimeMillis()
                             if (!isActionCompleted) {
                                 isActionCompleted = true
                                 callback.onAdClosed()
@@ -978,6 +1038,7 @@ object SMAdManager {
                         override fun onAdShowedFullScreenContent() {
                             dismissLoadingDialog()
                             isFullScreenAdShowing = true
+                            lastInterstitialShowTime = System.currentTimeMillis()
                             callback.onAdOpened()
                         }
                     }
